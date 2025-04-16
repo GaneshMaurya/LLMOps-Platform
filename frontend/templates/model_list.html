@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<title>Model List - LLMOps</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+</head>
+
+<body class="bg-light">
+	<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+		<div class="container-fluid">
+			<a class="navbar-brand" href="{{ url_for('home') }}">ML Model Platform</a>
+			<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+				aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+				<span class="navbar-toggler-icon"></span>
+			</button>
+			<div class="collapse navbar-collapse" id="navbarNav">
+				<ul class="navbar-nav me-auto">
+					<li class="nav-item">
+						<a class="nav-link {% if request.endpoint == 'home' %}active{% endif %}"
+							href="{{ url_for('home') }}">Home</a>
+					</li>
+					<li class="nav-item">
+						<a class="nav-link {% if request.endpoint == 'upload' %}active{% endif %}"
+							href="{{ url_for('upload') }}">Upload</a>
+					</li>
+					<li class="nav-item">
+						<a class="nav-link {% if request.endpoint == 'model_list' %}active{% endif %}"
+							href="{{ url_for('model_list') }}">Models</a>
+					</li>
+				</ul>
+				<ul class="navbar-nav">
+					<li class="nav-item">
+						<span class="nav-link text-light">Welcome, {{ session['user'] }}</span>
+					</li>
+					<li class="nav-item">
+						<form action="{{ url_for('logout') }}" method="post" class="d-inline">
+							<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+							<button type="submit" class="btn btn-danger my-2 my-sm-0">Logout</button>
+						</form>
+					</li>
+				</ul>
+			</div>
+		</div>
+	</nav>
+	<div class="container py-5">
+		<h2 class="mb-4">Available Models</h2>
+
+		{% with messages = get_flashed_messages() %} {% if messages %}
+		<div class="alert alert-info">
+			{% for message in messages %}
+			<p>{{ message }}</p>
+			{% endfor %}
+		</div>
+		{% endif %} {% endwith %}
+
+		<table class="table table-striped table-hover">
+			<thead>
+				<tr>
+					<th>Model Name</th>
+					<th>Version</th>
+					<th>Owner</th>
+					<th>Timestamp</th>
+					<th>Action</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% if models and models|length > 0 %} {% for model in models %}
+				<tr>
+					<td>{{ model.model_name }}</td>
+					<td>{{ model.version }}</td>
+					<td>{{ model.user_id }}</td>
+					<td>{{ model.timestamp }}</td>
+					<td>
+						<a href="{{ url_for('deploy', model_name=model.model_name, model_id=model.model_id, model_version=model.version) }}" class="btn btn-primary btn-sm">
+							Deploy
+						</a>
+					</td>
+				</tr>
+				{% endfor %} {% else %}
+				<tr>
+					<td colspan="5" class="text-center">No models available</td>
+				</tr>
+				{% endif %}
+			</tbody>
+		</table>
+
+		<a href="{{ url_for('home') }}" class="btn btn-secondary mt-4">Back to Home</a>
+	</div>
+
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>
