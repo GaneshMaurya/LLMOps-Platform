@@ -9,6 +9,7 @@ services:
       - "2181:2181"
     networks:
       - kafka-net
+    restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:latest
@@ -25,8 +26,14 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # Faster topic creation
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 1
+      # Larger message size for metrics
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
     networks:
       - kafka-net
+    restart: unless-stopped
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -41,6 +48,7 @@ services:
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     networks:
       - kafka-net
+    restart: unless-stopped
 
 networks:
   kafka-net:
