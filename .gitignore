@@ -1,1 +1,7 @@
 .Trash-1000/
+agent-Service/venv/
+controller-Service/venv/
+frontend/venv/
+model-registry/__pycache__/
+model-registry/venv/
+**.log

@@ -12,24 +12,49 @@ import psutil
 from flask import Flask, request, jsonify
 from confluent_kafka import Producer
 from confluent_kafka.admin import AdminClient, NewTopic
+import socket
+from dotenv import load_dotenv
+
+ENV_FILE_PATH = "/exports/applications/.env"  # Update this path as needed
+
+if os.path.exists(ENV_FILE_PATH):
+    load_dotenv(ENV_FILE_PATH)
+    print(f"Environment variables loaded from {ENV_FILE_PATH}")
+else:
+    print(f"Error: .env file not found at {ENV_FILE_PATH}")
+    exit(1)
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
 
 # Configuration
-KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '192.168.141.61:29092')
+KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', f"{os.getenv('life_cycle_manager_ip')}:29092")
 METRICS_TOPIC = os.getenv('METRICS_TOPIC', 'system-metrics')
 LAPTOP_ID = os.getenv('LAPTOP_ID', socket.gethostname())
 AGENT_PORT = int(os.getenv('AGENT_PORT', '8091'))
-AGENT_IP = os.getenv('AGENT_IP', '192.168.141.124')  # Should be externally accessible IP
-METRICS_INTERVAL = int(os.getenv('METRICS_INTERVAL', '10'))  # seconds
+LAPTOP_ID = os.getenv('LAPTOP_ID', socket.gethostname())[:10]
+AGENT_IP = os.getenv('AGENT_IP', get_local_ip())
+METRICS_INTERVAL = int(os.getenv('METRICS_INTERVAL', '10'))
 DOCKER_IMAGE = os.getenv('DOCKER_IMAGE', 'yaswanth2503/t1:latest')
 APP_MOUNT_PATH = os.getenv('APP_MOUNT_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app'))
-MODEL_REGISTRY_URL = os.getenv('MODEL_REGISTRY_URL', 'http://192.168.141.124:8000')
+MODEL_REGISTRY_URL = os.getenv('MODEL_REGISTRY_URL', f"http://{os.getenv('model_registry_ip', 'localhost')}:8000")
+
+agent_log_file = "/exports/applications/agent-Service/logs/agent-" + LAPTOP_ID + ".log"
+os.makedirs(os.path.dirname(agent_log_file), exist_ok=True)
 
 # Setup logging with detailed format
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - [%(levelname)s] - %(name)s - %(message)s - [%(filename)s:%(lineno)d]',
     handlers=[
-        logging.FileHandler("agent.log"),
+        logging.FileHandler(agent_log_file),
         logging.StreamHandler()
     ]
 )
@@ -247,9 +272,9 @@ class DeploymentAgent:
                     meta_data = json.load(f)
                 
                 setup_commands = meta_data.get('setup_commands', [])
-                start_command = meta_data.get('start_command', "python /app/app.py")
+                start_commands = meta_data.get('start_commands', "python /app/app.py")
                 
-                logger.info(f"Model meta data loaded: {len(setup_commands)} setup commands, start command: {start_command}")
+                logger.info(f"Model meta data loaded: {len(setup_commands)} setup commands, start command: {start_commands}")
                 
             except Exception as e:
                 logger.error(f"Error loading meta.json: {str(e)}")
@@ -262,15 +287,15 @@ class DeploymentAgent:
             environment = {
                 "MODEL_ID": model_id,
                 "DEPLOYMENT_ID": deployment_id,
-                "PORT": "8080"
+                "PORT": "5000"
             }
             
             if version:
                 environment["MODEL_VERSION"] = version
 
             # Create a combined command that runs setup commands and then the start command
-            full_command = "sh -c '" + " && ".join(setup_commands + [start_command]) + "'"
-            
+            full_command = "sh -c '" + " && ".join(setup_commands) + " && " + " & ".join(start_commands) + "; wait'"
+            print(full_command)
             # Add any environment variables specified in meta.json
             if 'environment' in meta_data and isinstance(meta_data['environment'], dict):
                 environment.update(meta_data['environment'])
@@ -291,7 +316,7 @@ class DeploymentAgent:
                 command=full_command,
                 volumes={model_path: {'bind': '/app', 'mode': 'ro'}},  # Mount model as read-only
                 working_dir="/app",
-                ports={'8080/tcp': host_port},
+                ports={'5000/tcp': host_port},
                 environment=environment,
                 detach=True,
                 restart_policy={"Name": "unless-stopped"}
