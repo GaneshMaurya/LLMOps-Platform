@@ -10,6 +10,13 @@ import requests
 from confluent_kafka import Consumer, KafkaError
 from confluent_kafka.admin import AdminClient, NewTopic
 import os
+from dotenv import load_dotenv
+import socket
+
+ENV_FILE='/exports/applications/.env'
+
+load_dotenv(ENV_FILE)
+
 
 
 # Configure logging with detailed format
@@ -23,19 +30,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger("deployment-controller")
 
-
+service_registry_ip=os.environ.get('service_registry_ip','192.168.211.61')
+service_registry_port=os.environ.get('service_registry_port','9090')
+KAFKA_HOST_IP=os.environ.get('life_cycle_manager_ip','192.168.211.61')
 
 app = Flask(__name__)
-CORS(app)  # This will enable CORS for all routes
+CORS(app) 
 
-# Configuration - can be overridden through environment variables
-KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:29092')
+KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', f'{KAFKA_HOST_IP}:29092')
 METRICS_TOPIC = os.getenv('METRICS_TOPIC', 'system-metrics')
 DEPLOYMENT_ENDPOINT = os.getenv('DEPLOYMENT_ENDPOINT', '/create-vm')
-HEALTH_CHECK_TIMEOUT = int(os.getenv('HEALTH_CHECK_TIMEOUT', '60'))  # Reduced timeout for faster checks
+HEALTH_CHECK_TIMEOUT = int(os.getenv('HEALTH_CHECK_TIMEOUT', '60'))
 SKIP_CONNECTIVITY_TEST = os.getenv('SKIP_CONNECTIVITY_TEST', 'False').lower() == 'true'
-MAX_METRIC_AGE_SECONDS = int(os.getenv('MAX_METRIC_AGE_SECONDS', '300'))  # 5 minutes by default
+MAX_METRIC_AGE_SECONDS = int(os.getenv('MAX_METRIC_AGE_SECONDS', '300'))
 SKIP_CONNECTIVITY_TEST=True
+CONTROLLER_PORT='8090'
 
 logger.info(f"Starting with: SKIP_CONNECTIVITY_TEST={SKIP_CONNECTIVITY_TEST}, HEALTH_CHECK_TIMEOUT={HEALTH_CHECK_TIMEOUT}s")
 
@@ -78,35 +87,107 @@ class DeploymentController:
         logger.info("Deployment controller initialization complete")
     
     def create_kafka_topic(self):
-        """Create Kafka topic if it doesn't exist"""
+        """Create Kafka topic with proper verification"""
         try:
-            logger.info(f"Attempting to create Kafka topic: {METRICS_TOPIC}")
+            logger.info(f"Checking for Kafka topic: {METRICS_TOPIC}")
             admin_client = AdminClient({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})
+            
+            # First check if the topic already exists
+            metadata = admin_client.list_topics(timeout=10)
+            if METRICS_TOPIC in metadata.topics:
+                logger.info(f"Topic {METRICS_TOPIC} already exists")
+                return True
+                
+            # Topic doesn't exist, create it
+            logger.info(f"Creating Kafka topic: {METRICS_TOPIC}")
             topic_list = [NewTopic(METRICS_TOPIC, num_partitions=1, replication_factor=1)]
-            admin_client.create_topics(topic_list)
-            logger.info(f"Successfully created Kafka topic: {METRICS_TOPIC}")
+            futures = admin_client.create_topics(topic_list)
+            
+            # Wait for topic creation to complete
+            for topic, future in futures.items():
+                try:
+                    future.result(timeout=30)  # Wait up to 30 seconds for creation
+                    logger.info(f"Successfully created Kafka topic: {topic}")
+                except Exception as e:
+                    logger.warning(f"Error creating topic {topic}: {str(e)}")
+                    # Don't return False here - topic might still be created
+            
+            # Verify the topic exists now
+            metadata = admin_client.list_topics(timeout=10)
+            if METRICS_TOPIC in metadata.topics:
+                logger.info(f"Verified topic {METRICS_TOPIC} exists")
+                return True
+            else:
+                logger.warning(f"Topic {METRICS_TOPIC} not found after creation attempt")
+                return False
+                
         except Exception as e:
             logger.warning(f"Could not create topic {METRICS_TOPIC}: {str(e)}")
+            return False
     
     def consume_metrics(self):
-        """Consume metrics from Kafka"""
+        """Consume metrics from Kafka with robust error handling"""
         logger.info("Starting metrics consumer loop")
+        
+        # Add initial delay to give time for Kafka to register the topic
+        time.sleep(5)
+        
+        # Track consecutive errors to implement backoff strategy
+        consecutive_errors = 0
+        max_consecutive_errors = 10
+        
         while True:
             try:
+                # Check if topic exists before attempting to poll
+                if consecutive_errors >= 3:
+                    # After 3 consecutive errors, verify topic exists
+                    admin_client = AdminClient({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})
+                    metadata = admin_client.list_topics(timeout=10)
+                    
+                    if METRICS_TOPIC not in metadata.topics:
+                        logger.warning(f"Topic {METRICS_TOPIC} not found. Attempting to create it.")
+                        self.create_kafka_topic()
+                        time.sleep(2)  # Give time for topic to register
+                
                 # Poll for messages
                 msg = self.metrics_consumer.poll(1.0)
                 
                 if msg is None:
+                    consecutive_errors = 0  # Reset error counter on successful poll
                     continue
                 
                 if msg.error():
                     if msg.error().code() == KafkaError._PARTITION_EOF:
                         logger.debug(f"Reached end of partition {msg.partition()}")
+                        consecutive_errors = 0  # This is normal behavior
                     else:
                         logger.error(f"Error polling Kafka: {msg.error()}")
+                        consecutive_errors += 1
+                        
+                        # If we get a topic error, try to recreate it
+                        if msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                            logger.warning("Topic not found. Attempting to create it.")
+                            self.create_kafka_topic()
+                            
+                            # Resubscribe to the topic
+                            logger.info("Resubscribing to the topic")
+                            self.metrics_consumer.unsubscribe()
+                            time.sleep(1)
+                            self.metrics_consumer.subscribe([METRICS_TOPIC])
+                            time.sleep(2)  # Give time for subscription to take effect
+                    
+                    if consecutive_errors >= max_consecutive_errors:
+                        logger.error(f"Too many consecutive errors ({consecutive_errors}). Sleeping before retry.")
+                        time.sleep(30)  # Longer sleep after many errors
+                        consecutive_errors = 0  # Reset after sleep
+                    
                     continue
                 
+                # Process the message (successful case)
                 try:
+                    # Reset error counter on successful processing
+                    consecutive_errors = 0
+                    
                     # Parse and process the message
                     metric_data = json.loads(msg.value().decode('utf-8'))
                     laptop_id = metric_data.get('laptop_id')
@@ -148,6 +229,7 @@ class DeploymentController:
             
             except Exception as e:
                 logger.error(f"Error in consumer loop: {str(e)}", exc_info=True)
+                consecutive_errors += 1
                 time.sleep(1)  # Brief pause on error
     
     def _test_connectivity(self, laptop_id, ip, port):
@@ -528,6 +610,10 @@ def get_deployments():
     logger.info(f"Deployments response: {len(deployments)} deployments")
     return jsonify(response), 200
 
+@app.route('/health',methods=['GET'])
+def health():
+    return jsonify({"status":"healthy"}), 200
+
 # Option to skip health checks via HTTP request
 @app.route('/controller/config', methods=['POST'])
 def update_config():
@@ -555,7 +641,32 @@ def update_config():
         },
         'message': f"Configuration updated: {', '.join(updated)}"
     }), 200
+def getMyIP():
+    local_ip=None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except:
+        s.close()
+    return local_ip
 
+def registerService():
+    logger.info("Registering With Service Registry")
+    ControllerIP=getMyIP()
+    requestURL=f'http://{service_registry_ip}:{service_registry_port}/service-registry/register'
+    body={'name':'controller','ip':ControllerIP,'port':f'{CONTROLLER_PORT}'}
+    logger.info(f"Sending registeration request at {requestURL} with body {body}")
+    response=requests.post(requestURL, json=body)
+    if response.status_code==400:
+        logger.error("Service Registration Failed")
+        exit()
+    else:
+        logger.info("Registration Successful")
+        return
+    
 if __name__ == '__main__':
     logger.info("Starting controller application")
-    app.run(host='0.0.0.0', port=8090)
+    registerService()
+    app.run(host='0.0.0.0', port=CONTROLLER_PORT)

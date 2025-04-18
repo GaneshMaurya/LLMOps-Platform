@@ -1,0 +1,7 @@
+flask
+requests
+docker
+psutil
+confluent-kafka
+flask_cors
+dotenv
