@@ -21,7 +21,8 @@ EXPORT_DIRS=("/exports/models" "/exports/applications" "/exports/datasets")
 echo "Creating export directories..."
 for dir in "${EXPORT_DIRS[@]}"; do
     mkdir -p "$dir"
-    chmod 755 "$dir"
+    chmod 777 "$dir"
+    chown nobody:nogroup "$dir"
 done
 
 # Detect network interfaces and get IP address

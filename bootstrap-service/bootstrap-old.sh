@@ -14,6 +14,7 @@ echo "Bootstrap started at $(date)" | tee -a $LOG_FILE
 
 # Define service-machine mappings using values from .env
 declare -A services
+services["service_registry"]="${service_registry_ip}"
 services["life_cycle_manager"]="${life_cycle_manager_ip}"
 services["model_registry"]="${model_registry_ip}"
 services["agent_1"]="${agent_1_ip}"
@@ -21,12 +22,14 @@ services["agent_2"]="${agent_2_ip}"
 
 # Define start commands (absolute paths to bootstrap scripts)
 declare -A start_commands
+start_commands["service_registry"]="/exports/applications/service-registry/bootstrap-service-registry.sh"
 start_commands["life_cycle_manager"]="/exports/applications/controller-Service/bootstrap-controller.sh"
 start_commands["model_registry"]="/exports/applications/model-registry/bootstrap-model-registry.sh"
 start_commands["agent_1"]="/exports/applications/agent-Service/bootstrap-agent.sh"
 start_commands["agent_2"]="/exports/applications/agent-Service/bootstrap-agent.sh"
 
 # Ensure necessary permissions for scripts
+chmod +x /exports/applications/service-registry/bootstrap-service-registry.sh
 chmod +x /exports/applications/controller-Service/bootstrap-controller.sh
 chmod +x /exports/applications/model-registry/bootstrap-model-registry.sh
 chmod +x /exports/applications/agent-Service/bootstrap-agent.sh
@@ -34,6 +37,9 @@ chmod +x /exports/applications/agent-Service/bootstrap-agent.sh
 # Define SSH credentials for each machine using .env values
 declare -A ssh_users
 declare -A ssh_passwords
+
+ssh_users["${service_registry_ip}"]="${service_registry_user}"
+ssh_passwords["${service_registry_ip}"]="${service_registry_pass}"
 
 ssh_users["${life_cycle_manager_ip}"]="${life_cycle_manager_user}"
 ssh_passwords["${life_cycle_manager_ip}"]="${life_cycle_manager_pass}"
@@ -91,8 +97,7 @@ start_service() {
 }
 
 # Define the sequence of services
-# service_sequence=("agent_1" "agent_2")
-service_sequence=("life_cycle_manager")
+service_start_sequence=("service_registry" "life_cycle_manager" "model_registry" "agent_1" "agent_2")
 
 # Run boot_nfs_client.sh only for agents
 for service in "${service_sequence[@]}"; do

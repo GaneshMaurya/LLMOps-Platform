@@ -60,10 +60,10 @@
 					<div class="card-body">
 						<div class="alert alert-info">
 							<i class="bi bi-info-circle me-2"></i>
-							Your ZIP file must contain the following files:
+							Your ZIP file must contain the following files with the same names as below:
 						</div>
 
-						<ul class="list-group mb-4">
+						<!-- <ul class="list-group mb-4">
 							<li class="list-group-item">
 								<span class="fw-bold text-primary">webapp.py</span>
 								<div class="text-muted small">Streamlit frontend application</div>
@@ -102,6 +102,60 @@
         "python3 app.py &",
         "streamlit run webapp.py"
     ]
+}</pre>
+						</div> -->
+						<ul class="list-group mb-4">
+							<li class="list-group-item">
+								<span class="fw-bold text-primary">webapp.py</span>
+								<div class="text-muted small">Streamlit frontend application</div>
+							</li>
+							<li class="list-group-item">
+								<span class="fw-bold text-primary">app.py</span>
+								<div class="text-muted small">Flask backend API</div>
+							</li>
+							<li class="list-group-item">
+								<span class="fw-bold text-primary">requirements.txt</span>
+								<div class="text-muted small">All Python dependencies</div>
+							</li>
+							<li class="list-group-item">
+								<span class="fw-bold text-primary">meta.json</span>
+								<div class="text-muted small">Configuration file with setup and start commands</div>
+							</li>
+							<li class="list-group-item">
+								<span class="fw-bold text-primary">model.pth</span>
+								<div class="text-muted small">Your trained PyTorch model file</div>
+							</li>
+						</ul>
+
+						<div class="alert alert-secondary">
+							<i class="bi bi-asterisk me-2"></i>
+							<strong>Note:</strong> All the above files are <strong>mandatory</strong>. Ensure that
+							<strong>no subfolders</strong> are present inside the ZIP file. All required files should
+							exist directly inside the root of the ZIP. Any <code>app.py</code> or <code>webapp.py</code>
+							file should be written accordingly, without relying on nested folder structures for imports
+							or file path resolution.
+						</div>
+
+						<div class="alert alert-warning">
+							<i class="bi bi-exclamation-triangle me-2"></i>
+							<strong>Important:</strong> Make sure the filenames in your meta.json match the actual
+							filenames in your ZIP file.
+						</div>
+						<div class="mt-4">
+							<h6 class="mb-2">Example meta.json:</h6>
+							<pre class="code-block bg-light p-3 border rounded">{
+    "setup_commands": [
+        "pip install -r requirements.txt"
+    ],
+    "start_commands": [
+        "python3 app.py &",
+        "streamlit run webapp.py"
+    ],
+	"description": "Handwritten Digit Recognition application with Flask backend and Streamlit frontend",
+    "ports": {
+        "backend": 5000,
+        "frontend": 8501
+    }
 }</pre>
 						</div>
 					</div>
@@ -177,26 +231,33 @@
 			statusDiv.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
 		}
 
-		async function generateUUID(text) {
-			const namespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
-			const encoder = new TextEncoder();
-			const data = encoder.encode(namespace + text);
-			const hashBuffer = await crypto.subtle.digest("SHA-1", data);
-			const hash = new Uint8Array(hashBuffer);
-
-			hash[6] = (hash[6] & 0x0f) | 0x50;
-			hash[8] = (hash[8] & 0x3f) | 0x80;
-
-			const uuid = [...hash.slice(0, 16)]
-				.map((b, i) => {
-					const hex = b.toString(16).padStart(2, "0");
-					if (i === 4 || i === 6 || i === 8 || i === 10) return "-" + hex;
-					return hex;
-				})
-				.join("");
-
-			return uuid;
+		function generateUUID() {
+			return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+				const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+				return v.toString(16);
+			});
 		}
+
+		// async function generateUUID(text) {
+		// 	const namespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+		// 	const encoder = new TextEncoder();
+		// 	const data = encoder.encode(namespace + text);
+		// 	const hashBuffer = await crypto.subtle.digest("SHA-1", data);
+		// 	const hash = new Uint8Array(hashBuffer);
+
+		// 	hash[6] = (hash[6] & 0x0f) | 0x50;
+		// 	hash[8] = (hash[8] & 0x3f) | 0x80;
+
+		// 	const uuid = [...hash.slice(0, 16)]
+		// 		.map((b, i) => {
+		// 			const hex = b.toString(16).padStart(2, "0");
+		// 			if (i === 4 || i === 6 || i === 8 || i === 10) return "-" + hex;
+		// 			return hex;
+		// 		})
+		// 		.join("");
+
+		// 	return uuid;
+		// }
 	</script>
 </body>
 

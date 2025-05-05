@@ -1,60 +1,275 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 
 <head>
-	<meta charset="UTF-8" />
-	<title>Model List - LLMOps</title>
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+    <meta charset="UTF-8">
+    <title>Model List - LLMOps</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 </head>
 
 <body class="bg-light">
-	{% include 'navbar.html' %}
-	<div class="container py-5">
-		<h2 class="mb-4">Available Models</h2>
+    {% include 'navbar.html' %}
+    <div class="container py-5">
+        <h2 class="mb-4">Available Models</h2>
 
-		{% with messages = get_flashed_messages() %} {% if messages %}
-		<div class="alert alert-info">
-			{% for message in messages %}
-			<p>{{ message }}</p>
-			{% endfor %}
-		</div>
-		{% endif %} {% endwith %}
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="alert alert-info">
+            {% for message in messages %}
+            {{ message }}
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
 
-		<table class="table table-striped table-hover">
-			<thead>
-				<tr>
-					<th>Model Name</th>
-					<th>Version</th>
-					<th>Owner</th>
-					<th>Timestamp</th>
-					<th>Action</th>
-				</tr>
-			</thead>
-			<tbody>
-				{% if models and models|length > 0 %} {% for model in models %}
-				<tr>
-					<td>{{ model.model_name }}</td>
-					<td>{{ model.version }}</td>
-					<td>{{ model.user_id }}</td>
-					<td>{{ model.timestamp }}</td>
-					<td>
-						<a href="{{ url_for('deploy', model_name=model.model_name, model_id=model.model_id, model_version=model.version) }}" class="btn btn-primary btn-sm">
-							Deploy
-						</a>
-					</td>
-				</tr>
-				{% endfor %} {% else %}
-				<tr>
-					<td colspan="5" class="text-center">No models available</td>
-				</tr>
-				{% endif %}
-			</tbody>
-		</table>
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Model Name</th>
+                    <th>Versions</th>
+                    <th>Owner</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if grouped_models %}
+                {% for model_name, model_data in grouped_models.items() %}
+                <tr>
+                    <td>{{ model_name }}</td>
+                    <td>
+                        <select class="form-select form-select-sm model-version" style="width: auto;">
+                            {% for version_data in model_data['versions']|sort(attribute='version', reverse=True) %}
+                            <option value="{{ version_data.model_id }}">{{ version_data.version }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td>{{ model_data['user_id'] }}</td>
+                    <td>
+                        <button class="btn btn-primary btn-sm deploy-btn me-2" data-model-name="{{ model_name }}"
+                            data-base-url="{{ url_for('deploy', model_name='__MODEL_NAME__', model_id='__MODEL_ID__', model_version='__VERSION__') }}">
+                            Deploy
+                        </button>
+                        <button class="btn btn-success btn-sm edit-btn" data-model-name="{{ model_name }}"
+                            data-model-id="{{ model_data['versions'][0].model_id }}">Edit</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="4" class="text-center">No models available</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <div class="card-footer bg-white">
+            <a href="{{ url_for('home') }}" class="btn btn-secondary">Back to Home</a>
+        </div>
+    </div>
 
-		<a href="{{ url_for('home') }}" class="btn btn-secondary mt-4">Back to Home</a>
-	</div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.deploy-btn').forEach(button => {
+                button.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const modelName = this.dataset.modelName;
+                    const select = this.closest('tr').querySelector('.model-version');
+                    const modelId = select.value;
+                    const version = select.options[select.selectedIndex].text;
 
-	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+                    let url = this.dataset.baseUrl
+                        .replace('__MODEL_NAME__', modelName)
+                        .replace('__MODEL_ID__', modelId)
+                        .replace('__VERSION__', version);
+
+                    window.location.href = url;
+                });
+            });
+
+            document.querySelectorAll('.edit-btn').forEach(link => {
+                link.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const modelName = this.dataset.modelName;
+                    const select = this.closest('tr').querySelector('.model-version');
+                    const modelId = select.value;
+                    const version = select.options[select.selectedIndex].text;
+
+                    window.location.href = `/model/edit/${modelName}/${modelId}/${version}`;
+                });
+            });
+        });
+    </script>
 </body>
 
+</html> -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Model List - LLMOps</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        .btn[disabled] {
+            cursor: not-allowed;
+            pointer-events: all !important;
+        }
+        .table-hover tbody tr:hover {
+            background-color: rgba(0,0,0,.075);
+        }
+        .version-badge {
+            font-size: 0.85em;
+            padding: 0.35em 0.65em;
+        }
+        .owner-cell {
+            font-style: italic;
+            color: #666;
+        }
+        .action-cell {
+            white-space: nowrap;
+        }
+    </style>
+</head>
+
+<body class="bg-light">
+    {% include 'navbar.html' %}
+    <div class="container py-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Available Models</h2>
+            <a href="{{ url_for('upload') }}" class="btn btn-primary">
+                <i class="bi bi-cloud-upload"></i> Upload New Model
+            </a>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category if category != 'message' else 'info' }} alert-dismissible fade show">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Model Name</th>
+                            <th>Versions</th>
+                            <th>Owner</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if grouped_models %}
+                        {% for model_name, model_data in grouped_models.items() %}
+                        <tr>
+                            <td class="align-middle">
+                                <strong>{{ model_name }}</strong>
+                            </td>
+                            <td class="align-middle">
+                                <select class="form-select form-select-sm model-version" style="width: auto;">
+                                    {% for version_data in model_data['versions']|sort(attribute='version', reverse=True) %}
+                                    <option value="{{ version_data.model_id }}">Version {{ version_data.version }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td class="align-middle owner-cell">
+                                <i class="bi bi-person"></i> {{ model_data['user_id'] }}
+                                {% if model_data['user_id'] == session['user'] %}
+                                <span class="badge bg-info text-dark ms-1">You</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end action-cell">
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-primary btn-sm deploy-btn me-2" 
+                                            data-model-name="{{ model_name }}"
+                                            data-base-url="{{ url_for('deploy', model_name='__MODEL_NAME__', model_id='__MODEL_ID__', model_version='__VERSION__') }}"
+                                            data-bs-toggle="tooltip"
+                                            title="Deploy this model">
+                                        <i class="bi bi-rocket"></i> Deploy
+                                    </button>
+                                    <button class="btn btn-success btn-sm edit-btn" 
+                                            data-model-name="{{ model_name }}"
+                                            data-model-id="{{ model_data['versions'][0].model_id }}"
+                                            {% if model_data['user_id'] != session['user'] %}
+                                            disabled
+                                            data-bs-toggle="tooltip"
+                                            title="Only the model owner can edit"
+                                            {% endif %}>
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center py-4">
+                                <i class="bi bi-inbox text-muted" style="font-size: 2rem;"></i>
+                                <p class="text-muted mt-2">No models available</p>
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <a href="{{ url_for('home') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Home
+            </a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Initialize tooltips
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+
+            // Handle deploy button clicks
+            document.querySelectorAll('.deploy-btn').forEach(button => {
+                button.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const modelName = this.dataset.modelName;
+                    const select = this.closest('tr').querySelector('.model-version');
+                    const modelId = select.value;
+                    const version = select.options[select.selectedIndex].text.replace('Version ', '');
+
+                    let url = this.dataset.baseUrl
+                        .replace('__MODEL_NAME__', modelName)
+                        .replace('__MODEL_ID__', modelId)
+                        .replace('__VERSION__', version);
+
+                    window.location.href = url;
+                });
+            });
+
+            // Handle edit button clicks
+            document.querySelectorAll('.edit-btn').forEach(button => {
+                button.addEventListener('click', function (e) {
+                    if (this.disabled) {
+                        return;
+                    }
+                    e.preventDefault();
+                    const modelName = this.dataset.modelName;
+                    const select = this.closest('tr').querySelector('.model-version');
+                    const modelId = select.value;
+                    const version = select.options[select.selectedIndex].text.replace('Version ', '');
+
+                    window.location.href = `/model/edit/${modelName}/${modelId}/${version}`;
+                });
+            });
+        });
+    </script>
+</body>
 </html>

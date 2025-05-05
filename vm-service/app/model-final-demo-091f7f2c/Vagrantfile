@@ -1,0 +1,64 @@
+
+            Vagrant.configure("2") do |config|
+                config.vm.box = "ubuntu-ml"
+
+                # Forward ports for both backend and frontend
+                config.vm.network "forwarded_port", guest: 5000, host: 38029  # Backend
+                config.vm.network "forwarded_port", guest: 8501, host: 33597  # Frontend
+                
+                config.vm.synced_folder "/exports/models/final-demo/v1", "/home/vagrant/model_app", create: true
+
+                config.vm.provider "virtualbox" do |vb|
+                    vb.memory = "1024"  # Increased memory for running both services
+                    vb.cpus = 2
+                end
+
+                config.vm.provision "shell", inline: <<-SHELL
+                    # Create and enable a 2GB swap file
+                    if ! swapon --show | grep -q /swapfile; then
+                        echo "Creating a 2GB swap file..."
+                        sudo fallocate -l 2G /swapfile
+                        sudo chmod 600 /swapfile
+                        sudo mkswap /swapfile
+                        sudo swapon /swapfile
+                        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+                        echo "Swap file created and enabled successfully."
+                    else
+                        echo "Swap file already exists and is enabled."
+                    fi
+
+                    # Navigate to the app directory
+                    cd /home/vagrant/model_app
+                    
+                    # Use existing venv if available or create a new one if needed
+                    if [ -d "venv" ]; then
+                        pip install flask_cors
+                        echo "Using existing virtual environment"
+                        source venv/bin/activate
+                    else
+                        echo "Creating new virtual environment"
+                        python3 -m venv venv
+                        source venv/bin/activate
+                        pip install flask flask_cors torch torchvision pillow streamlit requests
+                    fi
+                    
+                    # Start backend service (Flask)
+                    echo "Starting backend service (app.py)..."
+                    nohup python3 app.py > backend.log 2>&1 &
+                    echo $! > backend.pid
+
+                    # Wait for backend to start
+                    sleep 5
+
+                    # Start frontend service (Streamlit)
+                    echo "Starting frontend service (webapp.py)..."
+                    nohup streamlit run webapp.py --server.port=8501 --server.address=0.0.0.0 > frontend.log 2>&1 &
+                    echo $! > frontend.pid
+
+                    # Set permissions for log files
+                    chmod 666 backend.log frontend.log
+
+                    echo "Both services started. Check logs at backend.log and frontend.log"
+                SHELL
+            end
+            

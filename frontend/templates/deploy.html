@@ -12,14 +12,39 @@
 	<div class="container py-5">
 		<h2>Deploy Model: <span class="text-primary">{{ model_name }}</span></h2>
 		<p>This interface will configure and trigger deployment logic for the selected model.</p>
-
+		<div id="deployment_status" class="mt-3"></div>
 		<button id="deployBtn" class="btn btn-primary mt-3" onclick="triggerDeployment()">Trigger Deployment</button>
 		<div id="loadingMsg" class="mt-3 text-secondary" style="display: none;">Deploying model, please wait...</div>
+
+		<div class="mt-4">
+			<button id="accessUrlBtn" class="btn btn-success me-2" disabled onclick="openAccessUrl()">Access
+				URL</button>
+			<button id="publicUrlBtn" class="btn btn-info" disabled onclick="openPublicUrl()">Public URL</button>
+		</div>
 
 		<a href="{{ url_for('home') }}" class="btn btn-secondary mt-4">Back to Home</a>
 	</div>
 
 	<script>
+		let accessUrl = "";
+		let publicUrl = "";
+
+		function showMessage(message, type) {
+			const statusDiv = document.getElementById("deployment_status");
+			statusDiv.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+			// setTimeout(() => {
+			// 	window.location.href = redirectUrl;
+			// }, 3000);
+		}
+
+		function openAccessUrl() {
+			window.open(accessUrl, '_blank');
+		}
+
+		function openPublicUrl() {
+			window.open(publicUrl, '_blank');
+		}
+
 		function triggerDeployment() {
 			const controllerUrl = "{{ controller_URL }}";
 			const modelId = "{{ model_id }}";
@@ -34,6 +59,10 @@
 			deployBtn.innerText = "Deploying...";
 
 			// Send POST request to controller
+			// console.log(controllerUrl)
+			// console.log(modelId)
+			// console.log(modelVersion)
+
 			fetch(controllerUrl, {
 				method: "POST",
 				headers: {
@@ -51,11 +80,24 @@
 					return response.json();
 				})
 				.then(data => {
-					if (data.success === true && data.access_url) {
-						// Redirect to the access URL returned by the controller
-						window.location.href = data.access_url;
+					if (data.success === true) {
+						// Display success message
+						loadingMsg.textContent = "Deployment successful!";
+						deployBtn.innerText = "Deployed";
+						showMessage("Deployment successful!", "success");
+
+						// Store URLs and enable buttons if URLs are available
+						if (data.access_url) {
+							accessUrl = data.access_url;
+							document.getElementById("accessUrlBtn").disabled = false;
+						}
+
+						if (data.public_url) {
+							publicUrl = data.public_url;
+							document.getElementById("publicUrlBtn").disabled = false;
+						}
 					} else {
-						throw new Error("Deployment successful but no access URL provided");
+						throw new Error("Deployment response indicates failure");
 					}
 				})
 				.catch(error => {
@@ -63,7 +105,8 @@
 					loadingMsg.style.display = "none";
 					deployBtn.disabled = false;
 					deployBtn.innerText = "Trigger Deployment";
-					alert("Error: " + error.message);
+					message = "Error: " + error.message;
+					showMessage(message, "danger");
 				});
 		}
 	</script>

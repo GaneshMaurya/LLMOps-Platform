@@ -1,0 +1,1 @@
+{"virtualbox":{"/home/vagrant/model_app":{"create":true,"guestpath":"/home/vagrant/model_app","hostpath":"/exports/models/final-demo/v1","disabled":false,"__vagrantfile":true},"/vagrant":{"guestpath":"/vagrant","hostpath":"/exports/applications/vm-service/app/model-final-demo-091f7f2c","disabled":false,"__vagrantfile":true}}}

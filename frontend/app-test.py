@@ -3,7 +3,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import timedelta
-from flask_wtf.csrf import CSRFProtect, CSRFError
+from flask_wtf.csrf import CSRFProtect,  CSRFError
 import sqlite3
 import os
 import tempfile
