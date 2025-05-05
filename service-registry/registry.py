@@ -3,7 +3,12 @@ from flask_cors import CORS
 import requests
 import logging
 import time
+import os
 
+log_file_path = "service-registry.log"
+time.sleep(1)
+if os.path.exists(log_file_path):
+    os.chmod(log_file_path, 0o777)
 
 
 logging.basicConfig(

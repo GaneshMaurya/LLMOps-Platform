@@ -186,106 +186,6 @@ def validate_model_pth(model_path: str) -> Tuple[bool, Dict]:
         logger.error(f"Error validating model.pth: {e}")
         return False, {"error": f"Error validating model.pth: {str(e)}"}
 
-# def find_file_in_zip_structure(extract_dir: str, target_files: List[str]) -> Dict[str, str]:
-#     """
-#     Find required files in extracted zip structure, handling different zip formats:
-#     1. Direct files in the root
-#     2. Files inside a single directory
-#     3. Files in a deeply nested structure
-    
-#     Returns a dictionary mapping file names to their full paths
-#     """
-#     logger.info(f"Finding files in extracted structure: {extract_dir}")
-    
-#     # Initialize results dictionary
-#     found_files = {}
-#     files_to_find = set(target_files)
-    
-#     # First check if files are directly in the root
-#     for filename in files_to_find.copy():
-#         file_path = os.path.join(extract_dir, filename)
-#         if os.path.isfile(file_path):
-#             found_files[filename] = file_path
-#             files_to_find.remove(filename)
-    
-#     # If all files are found, return early
-#     if not files_to_find:
-#         logger.info("All files found at root level")
-#         return found_files
-    
-#     # Use recursive search for remaining files
-#     for filename in files_to_find:
-#         found = False
-#         for root, _, files in os.walk(extract_dir):
-#             if filename in files:
-#                 found_files[filename] = os.path.join(root, filename)
-#                 logger.info(f"Found {filename} at {found_files[filename]}")
-#                 found = True
-#                 break
-        
-#         if not found:
-#             # If we reach here, the file wasn't found
-#             missing_files = [f for f in target_files if f not in found_files]
-#             error_msg = f"Required files not found in the zip: {', '.join(missing_files)}"
-#             logger.error(error_msg)
-#             raise FileNotFoundError(error_msg)
-    
-#     return found_files
-
-# def run_validation(
-#     model_id: str,
-#     model_file_path: str,
-#     meta_content: str,
-#     app_content: str,
-#     webapp_content: str,
-#     requirements_content: str,
-#     user_id: str = None
-# ) -> Dict:
-#     logger.info(f"Starting validation for model_id: {model_id}")
-    
-#     meta_result = validate_meta_json(meta_content)
-#     app_result = validate_app_py(app_content)
-#     webapp_result = validate_web_app_py(webapp_content)
-#     req_result = validate_requirements_txt(requirements_content)
-#     model_result = validate_model_pth(model_file_path)
-    
-#     is_valid = all([meta_result[0], app_result[0], webapp_result[0], req_result[0], model_result[0]])
-    
-#     result = {
-#         "model_id": model_id,
-#         "is_valid": is_valid,
-#         "validation_time": datetime.utcnow().isoformat(),
-#         "details": {
-#             "meta_json": meta_result[1],
-#             "app_py": app_result[1],
-#             "webapp_py": webapp_result[1],
-#             "requirements_txt": req_result[1],
-#             "model_pth": model_result[1]
-#         }
-#     }
-    
-#     # Include user_id in the result if provided
-#     if user_id:
-#         result["user_id"] = user_id
-    
-#     if not is_valid:
-#         errors = []
-#         if not meta_result[0]:
-#             errors.append(meta_result[1].get("error", "meta.json validation failed"))
-#         if not app_result[0]:
-#             errors.append(app_result[1].get("error", "app.py validation failed"))
-#         if not webapp_result[0]:
-#             errors.append(webapp_result[1].get("error", "webapp.py validation failed"))
-#         if not req_result[0]:
-#             errors.append(req_result[1].get("error", "requirements.txt validation failed"))
-#         if not model_result[0]:
-#             errors.append(model_result[1].get("error", "model.pth validation failed"))
-        
-#         result["errors"] = errors
-    
-#     logger.info(f"Validation completed for model_id: {model_id}, is_valid: {is_valid}")
-#     return result
-
 def find_file_in_zip_structure(extract_dir: str, required_files: List[str], optional_files: List[str] = None) -> Dict[str, str]:
     """
     Find required and optional files in extracted zip structure.
@@ -401,198 +301,6 @@ def run_validation(
     logger.info(f"Validation completed for model_id: {model_id}, is_valid: {is_valid}")
     return result
 
-# @app.post("/registry/upload-and-validate/{model_id}", response_model=Dict)
-# async def upload_and_validate_model(
-#     model_id: str = Path(...),
-#     model_file: UploadFile = File(...),
-#     user_id: str = Form(...),
-#     model_name: str = Form(...),  # Added model_name parameter
-#     metadata: str = Form(default="{}")
-# ):
-#     logger.info(f"Received upload and validation request for model_id: {model_id}")
-    
-#     # Create temporary directory for validation
-#     temp_dir = tempfile.mkdtemp()
-#     extract_dir = os.path.join(temp_dir, "extracted")
-#     os.makedirs(extract_dir, exist_ok=True)
-    
-#     # Create connection for database operations
-#     conn = get_db()
-    
-#     try:
-#         # Check if model already exists for this user and get version
-#         version = get_latest_version(conn, model_id)
-        
-#         # Construct versioned storage path
-#         nfs_path = construct_nfs_path(model_id, version)
-#         os.makedirs(nfs_path, exist_ok=True)
-        
-#         # Save zip file temporarily
-#         zip_path = os.path.join(temp_dir, "model.zip")
-#         with open(zip_path, "wb") as f:
-#             content = await model_file.read()
-#             f.write(content)
-        
-#         # Verify it's a valid zip file
-#         if not zipfile.is_zipfile(zip_path):
-#             raise ValidationError("Uploaded file is not a valid zip file")
-        
-#         # Extract the zip for validation
-#         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-#             zip_ref.extractall(extract_dir)
-        
-#         # Find required files in extracted structure
-#         required_files = ["meta.json", "app.py", "webapp.py", "requirements.txt", "model.pth"]
-#         try:
-#             file_paths = find_file_in_zip_structure(extract_dir, required_files)
-#         except FileNotFoundError as e:
-#             return JSONResponse(
-#                 status_code=400,
-#                 content={
-#                     "request_id": f"val_{model_id}",
-#                     "status": "FAILED",
-#                     "error": str(e)
-#                 }
-#             )
-        
-#         # Read file contents for validation
-#         with open(file_paths["meta.json"], "r", encoding="utf-8") as f:
-#             meta_content = f.read()
-
-#         with open(file_paths["app.py"], "r", encoding="utf-8") as f:
-#             app_content = f.read()
-
-#         with open(file_paths["webapp.py"], "r", encoding="utf-8") as f:
-#             webapp_content = f.read()
-
-#         with open(file_paths["requirements.txt"], "r", encoding="utf-8") as f:
-#             requirements_content = f.read()
-        
-#         # Run validation
-#         validation_result = run_validation(
-#             model_id=model_id,
-#             model_file_path=file_paths["model.pth"],
-#             meta_content=meta_content,
-#             app_content=app_content,
-#             webapp_content=webapp_content,
-#             requirements_content=requirements_content,
-#             user_id=user_id
-#         )
-        
-#         # Only proceed with storage if validation passed
-#         if validation_result["is_valid"]:
-#             # Instead of extracting the zip directly to nfs_path, we'll extract each file
-#             # and copy it to the nfs_path to flatten the structure
-#             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-#                 for file_info in zip_ref.infolist():
-#                     # Skip directories
-#                     if file_info.filename.endswith('/'):
-#                         continue
-                    
-#                     # Extract just the filename without path
-#                     filename = os.path.basename(file_info.filename)
-                    
-#                     # Skip empty filenames (can happen with some zip formats)
-#                     if not filename:
-#                         continue
-                    
-#                     # Extract the file to the version folder with just its filename
-#                     source = zip_ref.open(file_info)
-#                     target_path = os.path.join(nfs_path, filename)
-                    
-#                     with open(target_path, "wb") as target:
-#                         shutil.copyfileobj(source, target)
-                    
-#                     logger.info(f"Extracted {filename} to {target_path}")
-            
-#             # Store in database with model_name
-#             conn.execute('''
-#                 INSERT INTO models (model_id, model_name, user_id, version, timestamp, metadata, storage_path, status, validation_result)
-#                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-#             ''', (
-#                 model_id,
-#                 model_name,
-#                 user_id,
-#                 version,
-#                 datetime.utcnow().isoformat(),
-#                 metadata,
-#                 nfs_path,
-#                 "validated_stored",
-#                 json.dumps(validation_result)
-#             ))
-#             conn.commit()
-            
-#             return {
-#                 "request_id": f"val_{model_id}",
-#                 "status": "COMPLETED",
-#                 "result": validation_result,
-#                 "storage": {
-#                     "model_id": model_id,
-#                     "model_name": model_name,
-#                     "version": version,
-#                     "path": nfs_path
-#                 }
-#             }
-#         else:
-#             # Store failed validation result with model_name
-#             conn.execute('''
-#                 INSERT INTO models (model_id, model_name, user_id, version, timestamp, metadata, storage_path, status, validation_result)
-#                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-#             ''', (
-#                 model_id,
-#                 model_name,
-#                 user_id,
-#                 version,
-#                 datetime.utcnow().isoformat(),
-#                 metadata,
-#                 None,
-#                 "validation_failed",
-#                 json.dumps(validation_result)
-#             ))
-#             conn.commit()
-            
-#             return JSONResponse(
-#                 status_code=400,
-#                 content={
-#                     "request_id": f"val_{model_id}",
-#                     "status": "FAILED",
-#                     "result": validation_result,
-#                 }
-#             )
-    
-#     except ValidationError as e:
-#         logger.error(f"Validation error: {str(e)}")
-#         error_result = {
-#             "model_id": model_id,
-#             "is_valid": False,
-#             "errors": [str(e)]
-#         }
-        
-#         return JSONResponse(
-#             status_code=400,
-#             content={
-#                 "request_id": f"val_{model_id}",
-#                 "status": "FAILED",
-#                 "error": str(e)
-#             }
-#         )
-        
-#     except Exception as e:
-#         logger.error(f"Server error: {str(e)}")
-#         return JSONResponse(
-#             status_code=500,
-#             content={
-#                 "request_id": f"val_{model_id}",
-#                 "status": "FAILED",
-#                 "error": f"Server error: {str(e)}"
-#             }
-#         )
-    
-#     finally:
-#         # Clean up temporary directory
-#         shutil.rmtree(temp_dir, ignore_errors=True)
-#         conn.close()
-
 @app.post("/registry/upload-and-validate/{model_id}", response_model=Dict)
 async def upload_and_validate_model(
     model_id: str = Path(...),
@@ -602,6 +310,7 @@ async def upload_and_validate_model(
     metadata: str = Form(default="{}")
 ):
     logger.info(f"Received upload and validation request for model_id: {model_id}")
+    logger.info(f"User ID: {user_id}, Model Name: {model_name}, Metadata: {metadata}")
     
     # Create temporary directory for validation
     temp_dir = tempfile.mkdtemp()
@@ -812,8 +521,12 @@ async def upload_model(
         version = 1
 
     # 2. Construct versioned storage path
+    # nfs_main_path = os.path.join(NFS_BASE_DIR, model_id)
     nfs_path = construct_nfs_path(model_id, version)
     os.makedirs(nfs_path, exist_ok=True)
+    # os.chmod(nfs_main_path, 0o777)
+    # perms = str(oct(os.stat(nfs_path).st_mode))
+    # logger.info(perms)
 
     # 3. Save zip file temporarily and extract
     temp_path = os.path.join(nfs_path, "temp.zip")

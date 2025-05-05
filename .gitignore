@@ -4,4 +4,12 @@ controller-Service/venv/
 frontend/venv/
 model-registry/__pycache__/
 model-registry/venv/
+service-registry/venv
+reverse-proxy/venv/
+vm-service/venv/
 **.log
+.env
+vm-service/venv
+vm-service/ubuntu-ml.box
+Vm-test/venv
+Vm-test/deployments

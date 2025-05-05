@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Edit Model - {{ model_name }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <!-- Remove CodeMirror CSS -->
+    <style>
+        #editor-container {
+            height: 600px;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+
+<body class="bg-light">
+    {% include 'navbar.html' %}
+    <div class="container py-5">
+        <h2>Edit Model: {{ model_name }} (Version {{ version }})</h2>
+        <div id="edit_status" class="mt-3"></div>
+
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <div class="list-group" id="file-list">
+                    {% for file in files %}
+                    <a href="#" class="list-group-item list-group-item-action" data-file-path="{{ file.path }}"
+                        data-file-content="{{ file.content }}">
+                        {{ file.path }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="col-md-9">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span id="current-file">Select a file to edit</span>
+                        <button class="btn btn-primary" id="save-changes">Save Changes</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="editor-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-footer bg-white">
+            <a href="{{ url_for('home') }}" class="btn btn-secondary">Back to Home</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs/loader.min.js"></script>
+    <script>
+        let editor;
+        let currentFilePath;
+        const files = {};
+
+        function showMessage(message, type, redirectUrl = '{{ url_for("model_list") }}') {
+            const statusDiv = document.getElementById("edit_status");
+            statusDiv.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+            setTimeout(() => {
+                window.location.href = redirectUrl;
+            }, 3000);
+        }
+
+        // Configure Monaco loader
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs' } });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // Initialize Monaco Editor
+            require(['vs/editor/editor.main'], function () {
+                // Create the editor
+                editor = monaco.editor.create(document.getElementById('editor-container'), {
+                    value: '',
+                    language: 'python',
+                    theme: 'vs',
+                    automaticLayout: true,
+                    minimap: { enabled: true }
+                });
+
+                // Initialize files from DOM
+                document.querySelectorAll('#file-list .list-group-item').forEach(item => {
+                    const filePath = item.dataset.filePath;
+                    const content = item.getAttribute('data-file-content');
+                    files[filePath] = content;
+
+                    item.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        // Highlight active file
+                        document.querySelectorAll('#file-list .list-group-item').forEach(el => {
+                            el.classList.remove('active');
+                        });
+                        this.classList.add('active');
+
+                        currentFilePath = filePath;
+                        document.getElementById('current-file').textContent = filePath;
+
+                        // Set the content and language based on file extension
+                        const fileExt = filePath.split('.').pop().toLowerCase();
+                        let language = 'plaintext';
+
+                        if (fileExt === 'py') {
+                            language = 'python';
+                        } else if (fileExt === 'json') {
+                            language = 'json';
+                        } else if (['yaml', 'yml'].includes(fileExt)) {
+                            language = 'yaml';
+                        } else if (fileExt === 'js') {
+                            language = 'javascript';
+                        } else if (fileExt === 'html') {
+                            language = 'html';
+                        } else if (fileExt === 'css') {
+                            language = 'css';
+                        } else if (fileExt === 'md') {
+                            language = 'markdown';
+                        }
+
+                        // Update model and language
+                        monaco.editor.setModelLanguage(editor.getModel(), language);
+                        editor.setValue(files[filePath]);
+                    });
+                });
+
+                document.getElementById('save-changes').addEventListener('click', async function () {
+                    if (currentFilePath) {
+                        files[currentFilePath] = editor.getValue();
+                    }
+
+                    try {
+                        const response = await fetch(window.location.href, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token() }}'
+                            },
+                            body: JSON.stringify({ files: files })
+                        });
+
+                        const result = await response.json();
+                        if (result.success) {
+                            showMessage(`Changes saved successfully! New version: ${result.new_version}`, "success", '{{ url_for("model_list") }}');
+                        } else {
+                            message = 'Failed to save changes: ' + result.error;
+                            showMessage(message, "danger");
+                        }
+                    } catch (error) {
+                        message = 'Error saving changes: ' + error;
+                        showMessage(message, "danger");
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>

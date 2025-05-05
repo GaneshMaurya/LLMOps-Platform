@@ -17,8 +17,6 @@ ENV_FILE='/exports/applications/.env'
 
 load_dotenv(ENV_FILE)
 
-
-
 # Configure logging with detailed format
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +30,7 @@ logger = logging.getLogger("deployment-controller")
 
 service_registry_ip=os.environ.get('service_registry_ip','192.168.211.61')
 service_registry_port=os.environ.get('service_registry_port','9090')
-KAFKA_HOST_IP=os.environ.get('life_cycle_manager_ip','192.168.211.61')
+KAFKA_HOST_IP=os.environ.get('life_cycle_manager_ip','192.168.227.62')
 
 app = Flask(__name__)
 CORS(app) 
@@ -45,6 +43,11 @@ SKIP_CONNECTIVITY_TEST = os.getenv('SKIP_CONNECTIVITY_TEST', 'False').lower() ==
 MAX_METRIC_AGE_SECONDS = int(os.getenv('MAX_METRIC_AGE_SECONDS', '300'))
 SKIP_CONNECTIVITY_TEST=True
 CONTROLLER_PORT='8090'
+
+# Add these environment variables for Caddy integration
+CADDY_API_URL = os.getenv('CADDY_API_URL', 'http://localhost:2019')
+ENABLE_PUBLIC_URLS = os.getenv('ENABLE_PUBLIC_URLS', 'True').lower() == 'true'
+PUBLIC_URL_BASE = os.getenv('PUBLIC_URL_BASE', 'http://localhost')
 
 logger.info(f"Starting with: SKIP_CONNECTIVITY_TEST={SKIP_CONNECTIVITY_TEST}, HEALTH_CHECK_TIMEOUT={HEALTH_CHECK_TIMEOUT}s")
 
@@ -190,7 +193,8 @@ class DeploymentController:
                     
                     # Parse and process the message
                     metric_data = json.loads(msg.value().decode('utf-8'))
-                    laptop_id = metric_data.get('laptop_id')
+                    system_data= metric_data.get('system',{})
+                    laptop_id=system_data.get('hostname',{})
                     
                     if not laptop_id:
                         logger.warning("Received metrics without laptop_id")
@@ -199,7 +203,7 @@ class DeploymentController:
                     with self.lock:
                         # Extract basic laptop information
                         ip = metric_data.get('ip')
-                        port = metric_data.get('port')
+                        port = metric_data.get('port',8091)
                         
                         if not ip or not port:
                             logger.warning(f"Metrics for laptop {laptop_id} missing IP or port")
@@ -356,8 +360,69 @@ class DeploymentController:
                 'score': best_score
             }
     
+    def update_caddy_route(self, deployment_id, internal_url, action="add"):
+        """
+        Directly update Caddy's configuration to add or remove a route
+        
+        Args:
+            deployment_id (str): Unique identifier for the deployment
+            internal_url (str): Internal URL where the model is running (ip:port)
+            action (str): Either "add" or "remove"
+            
+        Returns:
+            tuple: (success (bool), result (str))
+        """
+        
+        route_id = f"route-{deployment_id}"
+        
+        try:
+            if action == "add":
+                logger.info(f"Adding Caddy route for deployment {deployment_id} to {internal_url}")
+                
+                # Prepare the route configuration
+                config_patch = {
+                    "@id": route_id,
+                    "handle": [
+                        {
+                            "handler": "reverse_proxy",
+                            "upstreams": [{"dial": internal_url}]
+                        }
+                    ],
+                    "match": [{"path": [f"/{deployment_id}/*", f"/{deployment_id}"]}]
+                }
+                
+                # Use Caddy's API to add the route
+                config_url = f"{CADDY_API_URL}/config/apps/http/servers/srv0/routes"
+                response = requests.post(config_url, json=config_patch, timeout=10)
+                
+                if response.status_code in (200, 201, 202):
+                    return True, f"Route added for deployment {deployment_id}"
+                else:
+                    logger.error(f"Failed to add Caddy route: {response.status_code} - {response.text}")
+                    return False, f"Failed to add route: {response.text}"
+                    
+            elif action == "remove":
+                logger.info(f"Removing Caddy route for deployment {deployment_id}")
+                
+                # Use Caddy's API to remove the route
+                config_url = f"{CADDY_API_URL}/config/apps/http/servers/srv0/routes/{route_id}"
+                response = requests.delete(config_url, timeout=10)
+                
+                if response.status_code in (200, 204):
+                    return True, f"Route removed for deployment {deployment_id}"
+                else:
+                    logger.error(f"Failed to remove Caddy route: {response.status_code} - {response.text}")
+                    return False, f"Failed to remove route: {response.text}"
+                    
+            else:
+                return False, f"Invalid action: {action}"
+                
+        except Exception as e:
+            logger.error(f"Error updating Caddy route: {str(e)}", exc_info=True)
+            return False, f"Error: {str(e)}"
+    
     def deploy_model(self, model_id: str, version: str) -> Dict[str, Any]:
-        """Deploy model to the best available laptop"""
+        """Deploy model to the best available laptop and create public URL"""
         start_time = time.time()
         logger.info(f"STEP 1: Starting deployment for model {model_id} version {version}")
         
@@ -385,34 +450,59 @@ class DeploymentController:
             response = requests.post(
                 deployment_url,
                 json={'model_id': model_id, 'version': version},
-                timeout=60  # Reduced timeout for faster response
+                timeout=660  # Reduced timeout for faster response
             )
             
             # Process the response
             if response.status_code == 200:
                 response_data = response.json()
                 deployment_id = response_data.get('deployment_id', 'unknown')
+                model_access_url = response_data.get('access_url')
+                public_url = None
                 
-                logger.info(f"STEP 5: Deployment successful. Model {model_id} version {version} deployed to {laptop_id} with ID {deployment_id}")
+                logger.info(f"STEP 5: Deployment successful. Model {model_id} deployed with ID {deployment_id}")
                 
-                # Register the deployment (basic info only)
+                # Register the deployment
                 with self.lock:
                     self.deployment_registry[deployment_id] = {
                         'laptop_id': laptop_id,
                         'model_id': model_id,
                         'version': version,
-                        'deployment_time': time.time()
+                        'deployment_time': time.time(),
+                        'internal_url': model_access_url
                     }
                 
-                # Include access_url in the response
+                # STEP 6: Create public URL via Caddy if enabled
+                if ENABLE_PUBLIC_URLS and model_access_url:
+                    try:
+                        logger.info(f"STEP 6: Creating public URL for deployment {deployment_id}")
+                        
+                        success, message = self.update_caddy_route(deployment_id, model_access_url, "add")
+                        if success:
+                            public_url = f"{PUBLIC_URL_BASE}/{deployment_id}"
+                            
+                            # Update deployment registry with public URL
+                            with self.lock:
+                                if deployment_id in self.deployment_registry:
+                                    self.deployment_registry[deployment_id]['public_url'] = public_url
+                            
+                            logger.info(f"STEP 6: Public URL created: {public_url}")
+                        else:
+                            logger.warning(f"STEP 6: Failed to create public URL: {message}")
+                    except Exception as e:
+                        logger.error(f"STEP 6: Error creating public URL: {str(e)}")
+                else:
+                    logger.info("STEP 6: Public URL creation disabled or no model access URL available")
+                
                 end_time = time.time()
-                logger.info(f"STEP 6: Deployment completed. Total time: {end_time - start_time:.2f} seconds")
+                logger.info(f"Deployment completed. Total time: {end_time - start_time:.2f} seconds")
                 
                 return {
                     'success': True,
                     'laptop_id': laptop_id,
                     'deployment_id': deployment_id,
-                    'access_url': response_data.get('access_url'),
+                    'access_url': model_access_url,
+                    'public_url': public_url,
                     'deploy_time_seconds': end_time - start_time
                 }
             else:
@@ -436,7 +526,7 @@ class DeploymentController:
             }
     
     def stop_deployment(self, deployment_id):
-        """Stop a deployment by ID"""
+        """Stop a deployment by ID and remove its public URL"""
         logger.info(f"STEP 1: Stopping deployment {deployment_id}")
         
         with self.lock:
@@ -463,11 +553,24 @@ class DeploymentController:
             
             response = requests.post(
                 termination_url,
-                timeout=30  # Reduced timeout
+                timeout=30
             )
             
             if response.status_code == 200:
                 logger.info(f"STEP 4: Successfully stopped deployment {deployment_id}")
+                
+                # STEP 5: Remove public URL if enabled
+                if ENABLE_PUBLIC_URLS:
+                    try:
+                        logger.info(f"STEP 5: Removing public URL for deployment {deployment_id}")
+                        
+                        success, message = self.update_caddy_route(deployment_id, "", "remove")
+                        if success:
+                            logger.info(f"STEP 5: Public URL removed for deployment {deployment_id}")
+                        else:
+                            logger.warning(f"STEP 5: Failed to remove public URL: {message}")
+                    except Exception as e:
+                        logger.error(f"STEP 5: Error removing public URL: {str(e)}")
                 
                 # Remove from registry
                 with self.lock:
@@ -499,14 +602,16 @@ class DeploymentController:
                     'version': info.get('version', 'unknown'),
                     'laptop_id': info.get('laptop_id'),
                     'deployment_time': info.get('deployment_time'),
-                    'uptime': current_time - info.get('deployment_time', current_time)
+                    'uptime': current_time - info.get('deployment_time', current_time),
+                    'internal_url': info.get('internal_url'),
+                    'public_url': info.get('public_url')  # Include public URL in deployments info
                 }
                 for deployment_id, info in self.deployment_registry.items()
             }
             return deployments
 
 # Create controller instance
-controller = DeploymentController()
+controller = DeploymentController() 
 
 @app.route('/controller/deploy', methods=['POST'])
 def deploy_model():
@@ -618,7 +723,7 @@ def health():
 @app.route('/controller/config', methods=['POST'])
 def update_config():
     """Update controller configuration"""
-    global SKIP_CONNECTIVITY_TEST, HEALTH_CHECK_TIMEOUT
+    global SKIP_CONNECTIVITY_TEST, HEALTH_CHECK_TIMEOUT, ENABLE_PUBLIC_URLS
     
     data = request.json or {}
     updated = []
@@ -630,6 +735,10 @@ def update_config():
     if 'health_check_timeout' in data:
         HEALTH_CHECK_TIMEOUT = int(data['health_check_timeout'])
         updated.append(f"HEALTH_CHECK_TIMEOUT={HEALTH_CHECK_TIMEOUT}")
+    
+    if 'enable_public_urls' in data:
+        ENABLE_PUBLIC_URLS = data['enable_public_urls']
+        updated.append(f"ENABLE_PUBLIC_URLS={ENABLE_PUBLIC_URLS}")
         
     logger.info(f"Updated configuration: {', '.join(updated)}")
     
@@ -637,10 +746,45 @@ def update_config():
         'success': True,
         'config': {
             'skip_connectivity_test': SKIP_CONNECTIVITY_TEST,
-            'health_check_timeout': HEALTH_CHECK_TIMEOUT
+            'health_check_timeout': HEALTH_CHECK_TIMEOUT,
+            'enable_public_urls': ENABLE_PUBLIC_URLS
         },
         'message': f"Configuration updated: {', '.join(updated)}"
     }), 200
+
+# New endpoint to test Caddy connectivity
+@app.route('/controller/test-caddy', methods=['GET'])
+def test_caddy():
+    """Test Caddy connectivity and configuration"""
+    try:
+        # Try to connect to Caddy Admin API
+        test_url = f"{CADDY_API_URL}/config/"
+        response = requests.get(test_url, timeout=5)
+        
+        if response.status_code == 200:
+            return jsonify({
+                'success': True,
+                'caddy_status': 'connected',
+                'message': 'Successfully connected to Caddy Admin API',
+                'caddy_api_url': CADDY_API_URL,
+                'public_url_base': PUBLIC_URL_BASE,
+                'enable_public_urls': ENABLE_PUBLIC_URLS
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'caddy_status': 'error',
+                'message': f'Caddy responded with status code {response.status_code}',
+                'response': response.text
+            }), 500
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'caddy_status': 'error',
+            'message': f'Error connecting to Caddy: {str(e)}',
+            'caddy_api_url': CADDY_API_URL
+        }), 500
+
 def getMyIP():
     local_ip=None
     try:
