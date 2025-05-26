@@ -1,0 +1,14 @@
+kafka_brokers:
+  - localhost:29092
+deploy_requests_topic: deploy_requests
+available_ips_topic: available_ips
+allocated_ips_topic: allocated_ips
+deployment_status_topic: deployment_status
+nfs_server: 192.168.191.124
+nfs_share: /exports
+mount_point: /exports
+slcm_binary: /exports/system_services/binaries/servicelifecyclemanager/serverlifecyclemanager
+agent_binary: /exports/system_services/binaries/servicelifecyclemanager/agent
+persist_nfs_mount: true
+health_check_interval: 30
+health_port: 5000

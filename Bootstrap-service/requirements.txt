@@ -1,0 +1,5 @@
+kafka-python
+python-json-logger
+pyyaml
+flask
+pyinstaller

@@ -1,5 +1,0 @@
-flask
-Flask-Cors
-python-dotenv
-psutil
-requests

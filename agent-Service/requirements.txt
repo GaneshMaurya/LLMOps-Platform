@@ -1,6 +1,0 @@
-flask
-requests
-docker
-psutil
-confluent-kafka
-dotenv

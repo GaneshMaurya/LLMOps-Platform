@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the absolute path to the .env file
-ENV_FILE="/exports/applications/.env"
+ENV_FILE="/exports/system_services/.env"
 
 # Load environment variables from the .env file
 if [ -f "$ENV_FILE" ]; then
@@ -13,9 +13,10 @@ else
 fi
 
 # Define the absolute paths
-MODEL_REGISTRY_SCRIPT="/exports/applications/model-registry/model-registry.py"
-VENV_DIR="/exports/applications/model-registry/venv"
-REQUIREMENTS_FILE="/exports/applications/model-registry/requirements.txt"
+# MODEL_REGISTRY_SCRIPT="/exports/system_services/model-registry/model-registry.py"
+MODEL_REGISTRY_SCRIPT="/exports/system_services/model-registry/new-model-registry.py"
+VENV_DIR="/exports/system_services/model-registry/venv"
+REQUIREMENTS_FILE="/exports/system_services/model-registry/requirements.txt"
 
 # Check if the model-registry.py script exists
 if [ ! -f "$MODEL_REGISTRY_SCRIPT" ]; then
@@ -69,7 +70,7 @@ fi
 
 # Start the model-registry.py script
 echo "Starting model-registry.py on port $model_registry_port..."
-nohup python3 "$MODEL_REGISTRY_SCRIPT" > /exports/applications/model-registry/model-registry.log 2>&1 &
+nohup python3 "$MODEL_REGISTRY_SCRIPT" > /exports/system_services/model-registry/model-registry.log 2>&1 &
 
 # Get the PID of the last background process
 MODEL_REGISTRY_PID=$!
@@ -77,7 +78,7 @@ MODEL_REGISTRY_PID=$!
 # Confirm the model registry has started
 sleep 5  # Allow some time for the service to start
 if ps -p $MODEL_REGISTRY_PID > /dev/null; then
-    echo "Model Registry started successfully with PID $MODEL_REGISTRY_PID. Logs are being written to /exports/applications/model-registry/model-registry.log."
+    echo "Model Registry started successfully with PID $MODEL_REGISTRY_PID. Logs are being written to /exports/system_services/model-registry/model-registry.log."
 else
     echo "Error: Failed to start model-registry.py"
     deactivate
